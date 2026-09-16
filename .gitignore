@@ -9,3 +9,4 @@ docs/fake-vault/
 
 # licensing: the private key is minted in the seller's worker env, never in the repo
 secrets/
+out/

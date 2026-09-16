@@ -294,5 +294,17 @@ test("tampered payload, expired token and future iat all fail closed", () => {
   }
 });
 
+
+test("a multi-word client name is fully removed from the description", () => {
+  const e = core.parseDailyNote("2026-08-14.md", "- 09:00-10:30 @Acme Ltd kickoff and scope review", { clients: ["Acme Ltd"] });
+  assert.strictEqual(e[0].client, "Acme Ltd");
+  assert.strictEqual(e[0].note, "kickoff and scope review", "stray word left behind: " + JSON.stringify(e[0].note));
+  const e2 = core.parseDailyNote("2026-08-14.md", "- 45m @Other client small call", { clients: ["Acme Ltd", "Other client"] });
+  assert.strictEqual(e2[0].client, "Other client");
+  assert.strictEqual(e2[0].note, "small call", JSON.stringify(e2[0].note));
+  const e3 = core.parseDailyNote("2026-08-14.md", "- 2h @Northwind Corp monthly retainer, invoice 3", { clients: ["Northwind Corp"] });
+  assert.strictEqual(e3[0].note, "monthly retainer, invoice 3", JSON.stringify(e3[0].note));
+});
+
 console.log("\n" + passed + " passed");
 if (process.exitCode) console.error("SOME TESTS FAILED");

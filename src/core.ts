@@ -153,8 +153,11 @@ function extractClient(text: string, known: string[]): { client: string | null; 
   const tag = new RegExp(TAG_RE.source, "g");
   while ((m = tag.exec(text)) !== null) tokens.push(m[1]);
 
-  let rest = text.replace(new RegExp(TAG_RE.source, "g"), " ");
+  // Order matters: remove KNOWN multi-word names FIRST ("Acme Ltd" before the tag pass eats "@Acme"
+  // and leaves a stray "Ltd" in the invoice description), then any leftover generic tag tokens.
+  let rest = text;
   for (const k of ordered) rest = rest.replace(new RegExp(escapeRe(k), "gi"), " ");
+  rest = rest.replace(new RegExp(TAG_RE.source, "g"), " ");
 
   if (!client && tokens.length) client = tokens[0].replace(/[.,;:!?]+$/, "");
   return { client, rest };
@@ -226,6 +229,7 @@ function parseLine(
 
 function cleanNote(s: string): string {
   return s
+    .replace(/(^|\s)[@\[+#](?=\s|$)/g, " ") // a token marker whose name was already removed
     .replace(/^[\s:|\-–—]+/, "")
     .replace(/\s{2,}/g, " ")
     .replace(/\((\d+(?:[.,]\d+)?\s*[hm]\w*)\)\s*$/i, "")
