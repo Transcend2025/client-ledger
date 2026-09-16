@@ -4,3 +4,4 @@ tests/build/
 *.log
 .DS_Store
 data.json
+docs/fake-vault/
