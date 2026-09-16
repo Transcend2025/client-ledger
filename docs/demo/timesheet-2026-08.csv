@@ -1,0 +1,9 @@
+date,client,start,end,minutes,hours,rate,amount,note
+2026-08-03,Acme,09:00,10:30,90,1.50,120.00,180.00,design review for the checkout flow
+2026-08-03,Acme,10:30,12:00,90,1.50,120.00,180.00,API schema draft
+2026-08-03,Acme,,,120,2.00,120.00,240.00,refactor the scraper module
+2026-08-04,Acme,09:15,11:45,150,2.50,120.00,300.00,deep work on the PDF export
+2026-08-03,Northwind,,,45,0.75,80.00,60.00,quick sync on the migration
+2026-08-03,Northwind,14:00,15:00,60,1.00,80.00,80.00,onboarding call
+2026-08-04,Northwind,,,30,0.50,80.00,40.00,bug triage
+2026-08-04,Northwind,22:30,00:30,120,2.00,80.00,160.00,overnight data migration

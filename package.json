@@ -1,0 +1,21 @@
+{
+  "name": "client-ledger",
+  "version": "0.1.0",
+  "description": "Obsidian plugin: daily note time entries -> client timesheets and invoices",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
+    "test": "node esbuild.config.mjs test && node tests/core.test.cjs"
+  },
+  "keywords": ["obsidian", "timesheet", "invoice", "freelance"],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.24.0",
+    "obsidian": "^1.7.2",
+    "typescript": "^5.6.0"
+  }
+}

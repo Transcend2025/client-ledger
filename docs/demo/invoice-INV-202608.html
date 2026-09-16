@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invoice INV-202608</title>
+<style>
+  :root { --ink:#14161a; --muted:#6b7280; --line:#e5e7eb; }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); margin: 0; padding: 48px; background: #fff; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 32px; border-bottom: 2px solid var(--ink); padding-bottom: 16px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .meta { text-align: right; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 28px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); border-bottom: 1px solid var(--ink); }
+  .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .desc { color: #374151; font-size: 13px; }
+  tfoot td { border: none; padding: 6px 8px; }
+  tfoot .total td { border-top: 2px solid var(--ink); font-size: 17px; font-weight: 600; padding-top: 12px; }
+  .notes { margin-top: 32px; font-size: 13px; color: #374151; white-space: pre-wrap; }
+  @page { size: A4; margin: 16mm; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Invoice INV-202608</h1>
+    <div class="muted">Studio Five</div>
+    <div class="muted">Freelance engineering<br>VAT: N/A<br>pay@studiofive.example</div>
+  </div>
+  <div class="meta muted">
+    Period<br><strong>2026-08-01 → 2026-08-31</strong>
+    <br><br>Issued<br><strong>2026-09-01</strong>
+  </div>
+</header>
+<table>
+  <thead><tr><th>Client</th><th>Description</th><th class="num">Hours</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
+  <tbody>
+<tr>
+      <td>Acme</td>
+      <td class="desc">7h 30m across 4 entries (2026-08-03 → 2026-08-04): design review for the checkout flow; API schema draft; refactor the scraper module; +1 more</td>
+      <td class="num">7.50</td>
+      <td class="num">$120.00</td>
+      <td class="num">$900.00</td>
+    </tr>
+<tr>
+      <td>Northwind</td>
+      <td class="desc">4h 15m across 4 entries (2026-08-03 → 2026-08-04): quick sync on the migration; onboarding call; bug triage; +1 more</td>
+      <td class="num">4.25</td>
+      <td class="num">$80.00</td>
+      <td class="num">$340.00</td>
+    </tr>
+  </tbody>
+  <tfoot>
+    <tr><td colspan="4" class="num">Subtotal</td><td class="num">$1,240.00</td></tr>
+    
+    <tr class="total"><td colspan="4" class="num">Total due</td><td class="num">$1,240.00</td></tr>
+  </tfoot>
+</table>
+<div class="notes">Payable within 14 days. Thank you.</div>
+</body>
+</html>

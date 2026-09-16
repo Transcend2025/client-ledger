@@ -1,0 +1,28 @@
+.cl-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+}
+.cl-table th,
+.cl-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.cl-table th {
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.cl-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.cl-hint {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-top: 12px;
+}

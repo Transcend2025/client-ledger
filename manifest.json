@@ -1,0 +1,11 @@
+{
+	"id": "client-ledger",
+	"name": "Client Ledger",
+	"version": "0.1.0",
+	"minAppVersion": "1.5.0",
+	"description": "Turn daily note time entries into client timesheets and invoices.",
+	"author": "Client Ledger",
+	"authorUrl": "https://github.com/",
+	"fundingUrl": "https://github.com/",
+	"isDesktopOnly": false
+}
