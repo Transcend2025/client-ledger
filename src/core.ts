@@ -2,6 +2,12 @@
  * Client Ledger — pure core.
  * No Obsidian imports on purpose: everything here runs in plain Node and is unit tested.
  */
+import * as ed from "@noble/ed25519";
+import { sha512 } from "@noble/hashes/sha2.js";
+
+// @noble/ed25519 v3 has no bundled hash: its synchronous API needs sha512 injected once.
+// Pure JS on purpose — the plugin must also work on Obsidian mobile, where node:crypto is absent.
+(ed as unknown as { hashes: { sha512?: typeof sha512 } }).hashes.sha512 = sha512;
 
 export interface LedgerEntry {
   file: string;
@@ -13,15 +19,22 @@ export interface LedgerEntry {
   note: string;
   raw: string;
   line: number;
+  /** True when the line looks like a typo (e.g. a range longer than a working day). Never billed. */
+  suspicious?: boolean;
 }
 
 export interface LedgerOptions {
   /** Known client names. Used for `@token`/`[token]` matching and bare-name matching. */
   clients?: string[];
-  /** Round each entry up/down to the nearest N minutes. 0/1 = off. */
+  /** Round each entry UP to the nearest N minutes (it never rounds down). 0/1 = off. */
   roundTo?: number;
   /** Drop entries shorter than this after rounding. */
   minimumMinutes?: number;
+  /**
+   * A single entry longer than this is treated as a typo, flagged and never billed.
+   * 0 disables the guard. Defaults to MAX_ENTRY_MINUTES (16h).
+   */
+  maxEntryMinutes?: number;
 }
 
 export interface ClientTotal {
@@ -57,6 +70,11 @@ export interface Invoice {
   tax: number;
   total: number;
   minutes: number;
+  /**
+   * Lines that were parsed but deliberately not billed (typo-looking durations). They are printed
+   * on the invoice itself so the record survives after the transient Notice is gone.
+   */
+  excluded?: LedgerEntry[];
 }
 
 const DATE_RE = /(\d{4})-(\d{2})-(\d{2})/;
@@ -66,6 +84,12 @@ const HOURS_RE = /\b(\d+(?:[.,]\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/i;
 const MINUTES_ONLY_RE = /\b(\d+)\s*(?:m|min|mins|minute|minutes)\b/i;
 const HOURS_AND_MIN_RE = /\b(\d+)\s*(?:h|hr|hrs|hour|hours)\s*(\d{1,2})\s*(?:m|min|mins)\b/i;
 const CHECKBOX_RE = /^\s*(?:[-*+]|\d+\.)\s*(?:\[[ xX>/-]\]\s*)?/;
+/**
+ * Legacy constant kept for reference; the effective limit comes from
+ * LedgerOptions.maxEntryMinutes so a real 17h launch day is not silently dropped.
+ */
+export const MAX_ENTRY_MINUTES = 16 * 60;
+export const DEFAULT_MAX_ENTRY_MINUTES = 16 * 60;
 
 export function parseClock(hhmm: string): number {
   const [h, m] = hhmm.split(":").map((x) => parseInt(x, 10));
@@ -103,12 +127,13 @@ export function roundMinutes(minutes: number, roundTo: number): number {
   return Math.ceil(minutes / roundTo) * roundTo;
 }
 
-const TAG_RE = /(?:@|#client\/|\[|\+)([^\s\]]+)\]?/g;
+const TAG_RE = /(?:@|#client\/|\[)([^\s\]]+)\]?/g;
 
 /**
  * Client detection order matters:
  *   1. a known client name mentioned anywhere (longest first, so "Acme Corp" wins over "Acme")
- *   2. the first generic tag token — @Name, [Name], #client/Name, +Name
+ *   2. the first generic tag token — @Name, [Name], #client/Name. A bare "+" is NOT a tag:
+ *      "refactor C++ module" must not create a client called "+".
  * The raw line is returned without any client tokens so the invoice description stays clean.
  */
 function extractClient(text: string, known: string[]): { client: string | null; rest: string } {
@@ -142,8 +167,9 @@ function escapeRe(s: string): string {
 /** Parse a single line into minutes + client, or null if it is not a time entry. */
 function parseLine(
   line: string,
-  known: string[]
-): { minutes: number; client: string | null; note: string; start: string | null; end: string | null } | null {
+  known: string[],
+  maxMinutes: number = DEFAULT_MAX_ENTRY_MINUTES
+): { minutes: number; client: string | null; note: string; start: string | null; end: string | null; suspicious: boolean } | null {
   let body = line.replace(CHECKBOX_RE, "").trim();
   if (!body) return null;
   // skip headings / comments / code
@@ -152,12 +178,19 @@ function parseLine(
   let minutes: number | null = null;
   let startClock: string | null = null;
   let endClock: string | null = null;
+  let suspicious = false;
 
   const range = TIME_RANGE_RE.exec(body);
   if (range) {
     const start = parseClock(`${range[1]}:${range[2]}`);
     let end = parseClock(`${range[3]}:${range[4]}`);
-    if (end <= start) end += 1440; // overnight
+    // A range whose end is <= start is assumed to cross midnight — but only if the result still
+    // looks like a working session. "09:00-09:00" and "10:30-10:00" are typos, not 24h shifts;
+    // they used to be billed as 1440 / 1410 minutes (a 5.4x over-invoice). Flag, never bill.
+    if (end <= start) {
+      end += 1440;
+      if (maxMinutes > 0 && end - start > maxMinutes) suspicious = true;
+    }
     minutes = end - start;
     startClock = formatClock(start);
     endClock = formatClock(end);
@@ -165,12 +198,15 @@ function parseLine(
   } else {
     const hm = HOURS_AND_MIN_RE.exec(body);
     if (hm) {
-      minutes = parseInt(hm[1], 10) * 60 + Math.min(59, parseInt(hm[2], 10));
+      // "2h 90m" is 210 minutes; clamping the minutes field to 59 silently ate 31 of them.
+      minutes = parseInt(hm[1], 10) * 60 + parseInt(hm[2], 10);
+      if (maxMinutes > 0 && minutes > maxMinutes) suspicious = true;
       body = body.replace(hm[0], " ");
     } else {
       const h = HOURS_RE.exec(body);
       if (h) {
         minutes = Math.round(parseFloat(h[1].replace(",", ".")) * 60);
+        if (maxMinutes > 0 && minutes > maxMinutes) suspicious = true;
         body = body.replace(h[0], " ");
       } else {
         const mo = MINUTES_ONLY_RE.exec(body);
@@ -185,7 +221,7 @@ function parseLine(
 
   const { client, rest } = extractClient(body, known);
   const note = cleanNote(rest);
-  return { minutes, client, note, start: startClock, end: endClock };
+  return { minutes, client, note, start: startClock, end: endClock, suspicious };
 }
 
 function cleanNote(s: string): string {
@@ -197,15 +233,23 @@ function cleanNote(s: string): string {
     .trim();
 }
 
-/** Parse one daily note. `path` supplies the date; entries without a client are dropped. */
+export function hasDateInPath(path: string): boolean {
+  return DATE_RE.test(path);
+}
+
+/** Parse one daily note. `path` supplies the date; notes without a date in the path are skipped. */
 export function parseDailyNote(path: string, content: string, opts: LedgerOptions = {}): LedgerEntry[] {
   const known = opts.clients ?? [];
+  const maxMinutes = opts.maxEntryMinutes ?? DEFAULT_MAX_ENTRY_MINUTES;
   const dm = DATE_RE.exec(path);
-  const date = dm ? `${dm[1]}-${dm[2]}-${dm[3]}` : path;
+  // A note whose path carries no date cannot be attributed to a day. v0.1 used the whole path as the
+  // "date", so those entries showed up in the dashboard but never in a monthly invoice (480 vs 420).
+  if (!dm) return [];
+  const date = `${dm[1]}-${dm[2]}-${dm[3]}`;
   const out: LedgerEntry[] = [];
   const lines = content.split(/\r?\n/);
   lines.forEach((line, idx) => {
-    const parsed = parseLine(line, known);
+    const parsed = parseLine(line, known, maxMinutes);
     if (!parsed || !parsed.client) return;
     const minutes = roundMinutes(parsed.minutes, opts.roundTo ?? 0);
     if (minutes < (opts.minimumMinutes ?? 0)) return;
@@ -219,6 +263,7 @@ export function parseDailyNote(path: string, content: string, opts: LedgerOption
       note: parsed.note,
       raw: line.trim(),
       line: idx + 1,
+      suspicious: parsed.suspicious,
     });
   });
   return out;
@@ -228,7 +273,25 @@ export function parseDailyNotes(
   files: Array<{ path: string; content: string }>,
   opts: LedgerOptions = {}
 ): LedgerEntry[] {
-  return files.flatMap((f) => parseDailyNote(f.path, f.content, opts)).sort((a, b) => a.date.localeCompare(b.date));
+  // A vault often keeps copies of the same note (Backup/2026-08-03 copy.md). Identical lines in a
+  // *different* file describing the same date+clock+client are the same session: bill it once.
+  // Repeats inside one file are left alone (two real sessions can share a description).
+  const seen = new Set<string>();
+  const out: LedgerEntry[] = [];
+  for (const f of files) {
+    for (const e of parseDailyNote(f.path, f.content, opts)) {
+      const key = [e.date, e.start ?? "", e.end ?? "", e.minutes, e.client, e.note].join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(e);
+    }
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** Lines whose duration looked like a typo. Surfaced to the user, excluded from every total. */
+export function suspiciousEntries(entries: LedgerEntry[]): LedgerEntry[] {
+  return entries.filter((e) => e.suspicious);
 }
 
 export function inRange(date: string, from?: string, to?: string): boolean {
@@ -243,6 +306,7 @@ export function aggregate(
 ): ClientTotal[] {
   const byClient = new Map<string, ClientTotal>();
   for (const e of entries) {
+    if (e.suspicious) continue; // a flagged typo must never reach an invoice
     if (!inRange(e.date, opts.from, opts.to)) continue;
     let t = byClient.get(e.client);
     if (!t) {
@@ -258,7 +322,8 @@ export function aggregate(
 export function buildInvoice(
   totals: ClientTotal[],
   rates: Record<string, number>,
-  meta: InvoiceMeta = {}
+  meta: InvoiceMeta = {},
+  excluded: LedgerEntry[] = []
 ): Invoice {
   const lines: InvoiceLine[] = [];
   for (const t of totals) {
@@ -281,6 +346,7 @@ export function buildInvoice(
     tax,
     total: Math.round((subtotal + tax) * 100) / 100,
     minutes: totals.reduce((s, t) => s + t.minutes, 0),
+    excluded,
   };
 }
 
@@ -317,7 +383,10 @@ export function buildTimesheetCsv(totals: ClientTotal[], rates: Record<string, n
 }
 
 function csv(s: string): string {
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  // Excel/Sheets execute a cell that starts with = + - @ (and tabs/CR can smuggle one in).
+  // Prefixing an apostrophe keeps the text literal without changing what the user sees.
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 export function buildInvoiceMarkdown(inv: Invoice): string {
@@ -343,6 +412,18 @@ export function buildInvoiceMarkdown(inv: Invoice): string {
   if (inv.meta.notes) {
     L.push("");
     L.push(inv.meta.notes);
+  }
+  if (inv.excluded && inv.excluded.length) {
+    L.push("");
+    L.push(`## Not billed — needs review (${inv.excluded.length})`);
+    L.push("");
+    L.push(
+      "These lines were left out of every total above because the duration reads like a typo (for example a range longer than a working day). Fix the note and regenerate the invoice to include them."
+    );
+    L.push("");
+    for (const e of inv.excluded) {
+      L.push(`- \`${e.date}\` **${formatDuration(e.minutes)}** excluded — \`${e.raw}\` _(${e.file}:${e.line})_`);
+    }
   }
   return L.join("\n") + "\n";
 }
@@ -382,6 +463,11 @@ export function buildInvoiceHtml(inv: Invoice, opts: { printRules?: boolean } = 
   tfoot td { border: none; padding: 6px 8px; }
   tfoot .total td { border-top: 2px solid var(--ink); font-size: 17px; font-weight: 600; padding-top: 12px; }
   .notes { margin-top: 32px; font-size: 13px; color: #374151; white-space: pre-wrap; }
+  .review { margin-top: 36px; border: 1px solid #d97706; border-radius: 6px; padding: 12px 16px; background: #fffbeb; font-size: 12.5px; }
+  .review h2 { font-size: 13px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .05em; color: #92400e; }
+  .review p { margin: 0 0 8px; color: #92400e; }
+  .review ul { margin: 0; padding-left: 18px; }
+  .review code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   ${opts.printRules === false ? "" : "@page { size: A4; margin: 16mm; }"}
 </style>
 </head>
@@ -409,6 +495,19 @@ ${rows}
   </tfoot>
 </table>
 ${inv.meta.notes ? `<div class="notes">${esc(inv.meta.notes)}</div>` : ""}
+${
+  inv.excluded && inv.excluded.length
+    ? `<section class="review">
+  <h2>Not billed — needs review (${inv.excluded.length})</h2>
+  <p>These lines are excluded from every total above because the duration reads like a typo. Fix the note and regenerate.</p>
+  <ul>
+${inv.excluded
+  .map((e) => `    <li><strong>${esc(formatDuration(e.minutes))}</strong> on ${esc(e.date)} — <code>${esc(e.raw)}</code> <span class="muted">(${esc(e.file)}:${e.line})</span></li>`)
+  .join("\n")}
+  </ul>
+</section>`
+    : ""
+}
 </body>
 </html>
 `;
@@ -424,4 +523,70 @@ export function monthRange(ym: string): { from: string; to: string } {
   const [y, m] = ym.split("-").map((x) => parseInt(x, 10));
   const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
   return { from: `${ym}-01`, to: `${ym}-${String(last).padStart(2, "0")}` };
+}
+
+/* ------------------------------------------------------------------ *
+ * Offline licence verification.
+ *
+ * v0.1 shipped `/^CLPRO-[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/` — a pattern any buyer can type, so the
+ * Pro gate was cosmetic and revenue could not hang off it. Here the plugin carries only a PUBLIC
+ * key and verifies a signed token: a key that was not minted with the seller's private key fails.
+ * Still zero network calls, so the "no telemetry / no remote resources" review rules hold.
+ * ------------------------------------------------------------------ */
+
+/** Raw 32-byte Ed25519 public key (base64url) whose private half lives in the seller's worker. */
+export const LICENSE_PUBKEY = "zj2jvHJMqN0VO-2w2t3lGMfL1S5fgERvqk2IyUyZr4k";
+export const LICENSE_PREFIX = "CLPRO1";
+
+export interface LicenseStatus {
+  pro: boolean;
+  reason: string;
+  licenseId?: string;
+  expires?: string;
+}
+
+function b64uToBytes(s: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(s)) return null;
+  const pad = s.length % 4 === 0 ? "" : "=".repeat(4 - (s.length % 4));
+  try {
+    const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/") + pad);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/** Verify a license token entirely offline. Never throws — bad input fails closed. */
+export function verifyLicenseToken(token: string, nowMs: number = Date.now(), publicRaw: string = LICENSE_PUBKEY): LicenseStatus {
+  const fail = (reason: string): LicenseStatus => ({ pro: false, reason });
+  if (typeof token !== "string" || !token.trim()) return fail("empty");
+  const parts = token.trim().split(".");
+  if (parts.length !== 3 || parts[0] !== LICENSE_PREFIX) return fail("malformed");
+  const [, body, sig] = parts;
+  const payloadBytes = b64uToBytes(body);
+  const sigBytes = b64uToBytes(sig);
+  const pubBytes = b64uToBytes(publicRaw);
+  if (!payloadBytes || !sigBytes || !pubBytes || pubBytes.length !== 32 || sigBytes.length !== 64) return fail("malformed");
+
+  const msg = new TextEncoder().encode(`${LICENSE_PREFIX}.${body}`);
+  let ok = false;
+  try {
+    ok = ed.verify(sigBytes, msg, pubBytes);
+  } catch {
+    return fail("bad_signature");
+  }
+  if (!ok) return fail("bad_signature");
+
+  let payload: { v?: number; lic?: string; plan?: string; iat?: number; exp?: number };
+  try {
+    payload = JSON.parse(new TextDecoder().decode(payloadBytes));
+  } catch {
+    return fail("bad_payload");
+  }
+  if (payload.v !== 1) return fail("unsupported_version");
+  if (typeof payload.exp !== "number" || nowMs > payload.exp * 1000) return fail("expired");
+  if (typeof payload.iat === "number" && payload.iat * 1000 > nowMs + 86400000) return fail("issued_in_future");
+  return { pro: true, reason: "ok", licenseId: payload.lic, expires: new Date(payload.exp * 1000).toISOString() };
 }

@@ -21,7 +21,9 @@ if (testMode) {
     bundle: true,
     external: ["obsidian", "electron", "@codemirror/*", "@lezer/*", "builtin-modules"],
     format: "cjs",
-    target: "es2018",
+    // es2020 (not es2018): @noble/ed25519 uses BigInt literals. Obsidian's desktop Electron and
+    // mobile WebView are far past Chrome 67, which is where BigInt landed.
+    target: "es2020",
     logLevel: "info",
     sourcemap: prod ? false : "inline",
     treeShaking: true,

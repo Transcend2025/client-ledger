@@ -1,7 +1,11 @@
 node_modules/
 main.js
 tests/build/
+dist/
 *.log
 .DS_Store
 data.json
 docs/fake-vault/
+
+# licensing: the private key is minted in the seller's worker env, never in the repo
+secrets/

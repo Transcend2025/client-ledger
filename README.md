@@ -61,6 +61,21 @@ Northwind=80
 
 **Telemetry:** none, client-side or server-side.
 
+## Not billed — needs review
+
+An entry whose duration reads like a typo is never charged and never silently dropped. A range that ends before it starts (`09:00-09:00`, `10:30-10:00`) or any single entry longer than the threshold (default 960 minutes / 16h, configurable, `0` = guard off) is:
+
+- excluded from every total, and
+- printed on the invoice itself, under **Not billed — needs review**, with the original line and file:line
+
+A genuine long day is a one-click fix: raise the threshold in settings, or split the entry. Nothing disappears into a transient notification.
+
+## Pro licence
+
+The free tier covers the dashboard, the markdown invoice note, the CSV timesheet, the audit report and the excluded-lines record. Pro unlocks the printable HTML/PDF invoice export.
+
+Pro keys are signed tokens of the form `CLPRO1.<payload>.<signature>`, minted by the seller. The plugin embeds only the **public** key and verifies the signature **offline** — a key you typed yourself, or one signed by anyone else, will not unlock Pro. To buy one, see <https://github.com/Transcend2025>.
+
 ## Install
 
 1. Build: `npm install && npm run build` (produces `main.js`)
@@ -71,7 +86,7 @@ Northwind=80
 
 ```bash
 npm install
-npm test        # bundles src/core.ts and runs the 17-assertion core suite in plain Node
+npm test        # bundles src/core.ts and runs the 30-assertion core suite in plain Node
 npm run build   # tsc --noEmit + esbuild -> main.js
 node scripts/demo.cjs   # writes a real invoice to docs/demo/ from the fixtures
 ```

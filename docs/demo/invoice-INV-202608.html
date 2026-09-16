@@ -19,6 +19,11 @@
   tfoot td { border: none; padding: 6px 8px; }
   tfoot .total td { border-top: 2px solid var(--ink); font-size: 17px; font-weight: 600; padding-top: 12px; }
   .notes { margin-top: 32px; font-size: 13px; color: #374151; white-space: pre-wrap; }
+  .review { margin-top: 36px; border: 1px solid #d97706; border-radius: 6px; padding: 12px 16px; background: #fffbeb; font-size: 12.5px; }
+  .review h2 { font-size: 13px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .05em; color: #92400e; }
+  .review p { margin: 0 0 8px; color: #92400e; }
+  .review ul { margin: 0; padding-left: 18px; }
+  .review code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   @page { size: A4; margin: 16mm; }
 </style>
 </head>
@@ -39,10 +44,10 @@
   <tbody>
 <tr>
       <td>Acme</td>
-      <td class="desc">7h 30m across 4 entries (2026-08-03 → 2026-08-04): design review for the checkout flow; API schema draft; refactor the scraper module; +1 more</td>
-      <td class="num">7.50</td>
+      <td class="desc">10h 30m across 5 entries (2026-08-03 → 2026-08-12): design review for the checkout flow; API schema draft; refactor the scraper module; +2 more</td>
+      <td class="num">10.50</td>
       <td class="num">$120.00</td>
-      <td class="num">$900.00</td>
+      <td class="num">$1,260.00</td>
     </tr>
 <tr>
       <td>Northwind</td>
@@ -53,11 +58,18 @@
     </tr>
   </tbody>
   <tfoot>
-    <tr><td colspan="4" class="num">Subtotal</td><td class="num">$1,240.00</td></tr>
+    <tr><td colspan="4" class="num">Subtotal</td><td class="num">$1,600.00</td></tr>
     
-    <tr class="total"><td colspan="4" class="num">Total due</td><td class="num">$1,240.00</td></tr>
+    <tr class="total"><td colspan="4" class="num">Total due</td><td class="num">$1,600.00</td></tr>
   </tfoot>
 </table>
 <div class="notes">Payable within 14 days. Thank you.</div>
+<section class="review">
+  <h2>Not billed — needs review (1)</h2>
+  <p>These lines are excluded from every total above because the duration reads like a typo. Fix the note and regenerate.</p>
+  <ul>
+    <li><strong>24h</strong> on 2026-08-12 — <code>- 09:00-09:00 @Acme call (typo: same start and end)</code> <span class="muted">(2026-08-12.md:1)</span></li>
+  </ul>
+</section>
 </body>
 </html>

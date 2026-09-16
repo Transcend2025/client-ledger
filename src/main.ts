@@ -18,6 +18,8 @@ import {
   monthRange,
   money,
   parseDailyNotes,
+  suspiciousEntries,
+  verifyLicenseToken,
   type ClientTotal,
   type Invoice,
   type LedgerEntry,
@@ -30,6 +32,8 @@ interface Settings {
   rates: string; // "Acme=120" per line
   roundTo: number;
   minimumMinutes: number;
+  /** A single entry longer than this is flagged as a typo and never billed. 0 = guard off. */
+  maxEntryMinutes: number;
   currency: string;
   businessName: string;
   businessDetails: string;
@@ -44,6 +48,7 @@ const DEFAULTS: Settings = {
   rates: "",
   roundTo: 0,
   minimumMinutes: 0,
+  maxEntryMinutes: 960,
   currency: "USD",
   businessName: "",
   businessDetails: "",
@@ -120,13 +125,20 @@ export default class ClientLedger extends Plugin {
       clients: this.clientList(),
       roundTo: this.settings.roundTo,
       minimumMinutes: this.settings.minimumMinutes,
+      maxEntryMinutes: this.settings.maxEntryMinutes,
     };
   }
 
+  /** Pro entitlement, verified offline against an embedded public key (see verifyLicenseToken). */
+  license() {
+    return verifyLicenseToken(this.settings.licenseKey.trim());
+  }
+
   isPro(): boolean {
-    // v0.1: offline entitlement. Keys are issued manually after purchase and
-    // checked locally; no network call is made (see README "Payment" disclosure).
-    return /^CLPRO-[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$/.test(this.settings.licenseKey.trim().toUpperCase());
+    // v0.2: the v0.1 pattern check was forgeable (anyone could type CLPRO-AAAA-...), so it is gone.
+    // The key is now a signed token: it only verifies if the seller's private key minted it.
+    // Still no network call (see README "Payment" disclosure).
+    return this.license().pro;
   }
 
   /* ---------------- data ---------------- */
@@ -147,10 +159,48 @@ export default class ClientLedger extends Plugin {
     return parseDailyNotes(payload, this.options());
   }
 
-  async computeTotals(ym?: string): Promise<ClientTotal[]> {
+  async collect(ym?: string): Promise<{ entries: LedgerEntry[]; flagged: LedgerEntry[]; dateless: string[]; totals: ClientTotal[] }> {
     const range = ym ? monthRange(ym) : undefined;
-    const entries = await this.scan(range);
-    return aggregate(entries, { ...this.options(), ...(range ?? {}) });
+    const payload: Array<{ path: string; content: string }> = [];
+    const dateless: string[] = [];
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      const dm = /([0-9]{4})-([0-9]{2})-([0-9]{2})/.exec(f.path);
+      const content = await this.app.vault.read(f);
+      if (!dm) {
+        // No date in the file name, so it can never belong to a month: report it, never bill it.
+        if (this.hasTimedLines(content)) dateless.push(f.path);
+        continue;
+      }
+      const date = `${dm[1]}-${dm[2]}-${dm[3]}`;
+      if (range && (date < range.from || date > range.to)) continue;
+      payload.push({ path: f.path, content });
+    }
+    const entries = parseDailyNotes(payload, this.options());
+    const flagged = suspiciousEntries(entries);
+    if (flagged.length) {
+      const f = flagged[0];
+      new Notice(
+        `Client Ledger: ${flagged.length} line(s) left out of the invoice — "${f.raw.slice(0, 48)}" reads as ${formatDuration(
+          f.minutes
+        )}. They are listed on the invoice under "Not billed".`,
+        10000
+      );
+    }
+    if (dateless.length) {
+      new Notice(
+        `Client Ledger: ${dateless.length} note(s) with timed lines have no date in their file name and cannot be invoiced. Listed in Client Ledger/unassigned-audit.md.`,
+        8000
+      );
+    }
+    return { entries, flagged, dateless, totals: aggregate(entries, { ...this.options(), ...(range ?? {}) }) };
+  }
+
+  private hasTimedLines(content: string): boolean {
+    return /([0-9]{1,2}:[0-9]{2}\s*(?:-|–|—|to)\s*[0-9]{1,2}:[0-9]{2})|\b[0-9]+\s*(?:h|hr|hrs|hour|hours|m|min|mins)\b/i.test(content);
+  }
+
+  async computeTotals(ym?: string): Promise<ClientTotal[]> {
+    return (await this.collect(ym)).totals;
   }
 
   /* ---------------- actions ---------------- */
@@ -165,7 +215,7 @@ export default class ClientLedger extends Plugin {
   async runInvoice(offset: number) {
     const ym = this.ym(offset);
     const { from, to } = monthRange(ym);
-    const totals = await this.computeTotals(ym);
+    const { totals, flagged } = await this.collect(ym);
     if (!totals.length) {
       new Notice(`Client Ledger: no billable entries found for ${ym}. Add lines like "- 09:00-10:30 @Acme design review".`);
       return;
@@ -179,7 +229,7 @@ export default class ClientLedger extends Plugin {
       businessName: this.settings.businessName,
       businessDetails: this.settings.businessDetails,
       notes: this.settings.paymentTerms,
-    });
+    }, flagged);
     this.lastInvoice = invoice;
     new LedgerModal(this.app, invoice, totals, this).open();
   }
@@ -200,20 +250,45 @@ export default class ClientLedger extends Plugin {
   async auditUnassigned() {
     const files = this.app.vault.getMarkdownFiles();
     const orphan: string[] = [];
-    for (const f of files.slice(0, 2000)) {
+    const dateless: string[] = [];
+    let scanned = 0;
+    for (const f of files) {
       const content = await this.app.vault.read(f);
-      content.split(/\r?\n/).forEach((line, i) => {
-        if (/(\d{1,2}:\d{2}\s*(?:-|–|—|to)\s*\d{1,2}:\d{2})|\b\d+\s*(?:h|min|m)\b/i.test(line) && !/@|\[[^\]]+\]/.test(line)) {
+      scanned++;
+      const dated = /([0-9]{4})-([0-9]{2})-([0-9]{2})/.test(f.path);
+      if (!dated) {
+        if (this.hasTimedLines(content)) dateless.push(f.path);
+        continue;
+      }
+      content.split("\n").forEach((line, i) => {
+        if (this.hasTimedLines(line) && !/@|\[[^\]]+\]/.test(line)) {
           orphan.push(`${f.path}:${i + 1}  ${line.trim()}`);
         }
       });
     }
-    const report = orphan.length
-      ? `# Unassigned time entries\n\n${orphan.map((l) => "- " + l).join("\n")}\n`
-      : "# Unassigned time entries\n\nNothing found. Every timed line has a client token.\n";
+    const parts = [
+      "# Unassigned time entries",
+      "",
+      `Scanned ${scanned} note(s) — no cap. Generated ${new Date().toISOString()}.`,
+      "",
+      "## Timed lines with no client (not billable until tagged)",
+      "",
+      orphan.length ? orphan.map((l) => "- " + l).join("\n") : "Nothing found. Every timed line has a client token.",
+      "",
+      "## Notes whose file name has no date (cannot be invoiced at all)",
+      "",
+      dateless.length
+        ? dateless.map((p) => `- ${p} — rename to include YYYY-MM-DD, or move the lines into a daily note`).join("\n")
+        : "None.",
+      "",
+      "## Lines excluded from invoices as typos",
+      "",
+      "Any line whose duration reads like a typo is listed on the invoice itself under \"Not billed — needs review\", so this file does not duplicate it.",
+      "",
+    ];
     const path = normalizePath("Client Ledger/unassigned-audit.md");
-    await this.writeFile(path, report);
-    new Notice(`Client Ledger: ${orphan.length} unassigned line(s) → ${path}`);
+    await this.writeFile(path, parts.join("\n"));
+    new Notice(`Client Ledger: ${orphan.length} unassigned line(s), ${dateless.length} undated note(s) → ${path}`);
   }
 
   private async writeFile(path: string, data: string) {
@@ -322,6 +397,12 @@ class LedgerModal extends Modal {
     if (!this.plugin.isPro()) {
       contentEl.createEl("p", { cls: "cl-hint", text: "Pro unlocks printable HTML/PDF invoice export with your branding and license key. Free tier: dashboard, markdown invoice, CSV timesheet." });
     }
+    if (this.invoice.excluded && this.invoice.excluded.length) {
+      contentEl.createEl("p", {
+        cls: "cl-hint",
+        text: `${this.invoice.excluded.length} line(s) were left out of this invoice because the duration looks like a typo. They are printed on the invoice under "Not billed" — fix the note and regenerate to include them.`,
+      });
+    }
   }
   onClose() {
     this.contentEl.empty();
@@ -384,6 +465,16 @@ class LedgerSettingTab extends PluginSettingTab {
       }));
 
     new Setting(containerEl)
+      .setName("Flag entries longer than (minutes)")
+      .setDesc(
+        'A single entry above this is treated as a typo, printed on the invoice under "Not billed" and never charged. 0 turns the guard off. Default 960 (16h).'
+      )
+      .addText((t) => t.setValue(String(this.plugin.settings.maxEntryMinutes)).onChange(async (v) => {
+        this.plugin.settings.maxEntryMinutes = parseInt(v, 10) || 0;
+        await this.plugin.saveSettings();
+      }));
+
+    new Setting(containerEl)
       .setName("Currency")
       .setDesc("USD, EUR, GBP, CNY…")
       .addText((t) => t.setValue(this.plugin.settings.currency).onChange(async (v) => {
@@ -415,7 +506,7 @@ class LedgerSettingTab extends PluginSettingTab {
     containerEl.createEl("h3", { text: "Pro license" });
     new Setting(containerEl)
       .setName("License key")
-      .setDesc("Format CLPRO-XXXX-XXXX-XXXX-XXXX. Verified locally, no network call.")
+      .setDesc("Paste the CLPRO1.… key from your purchase email. Verified offline, no network call.")
       .addText((t) => t.setValue(this.plugin.settings.licenseKey).onChange(async (v) => {
         this.plugin.settings.licenseKey = v.trim();
         await this.plugin.saveSettings();

@@ -9,9 +9,15 @@ pay@studiofive.example
 
 | Client | Description | Hours | Rate | Amount |
 | --- | --- | ---: | ---: | ---: |
-| Acme | 7h 30m across 4 entries (2026-08-03 → 2026-08-04): design review for the checkout flow; API schema draft; refactor the scraper module; +1 more | 7.50 | $120.00 | $900.00 |
+| Acme | 10h 30m across 5 entries (2026-08-03 → 2026-08-12): design review for the checkout flow; API schema draft; refactor the scraper module; +2 more | 10.50 | $120.00 | $1,260.00 |
 | Northwind | 4h 15m across 4 entries (2026-08-03 → 2026-08-04): quick sync on the migration; onboarding call; bug triage; +1 more | 4.25 | $80.00 | $340.00 |
-| | **Subtotal** | **11.75** | | **$1,240.00** |
-| | **Total due** | | | **$1,240.00** |
+| | **Subtotal** | **14.75** | | **$1,600.00** |
+| | **Total due** | | | **$1,600.00** |
 
 Payable within 14 days. Thank you.
+
+## Not billed — needs review (1)
+
+These lines were left out of every total above because the duration reads like a typo (for example a range longer than a working day). Fix the note and regenerate the invoice to include them.
+
+- `2026-08-12` **24h** excluded — `- 09:00-09:00 @Acme call (typo: same start and end)` _(2026-08-12.md:1)_
