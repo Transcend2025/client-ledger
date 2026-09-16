@@ -108,6 +108,33 @@ const bundle = read("main.js");
   ? ok("main.js contains URL string literals (verified: none are remote assets)")
   : ok("main.js contains no remote URLs");
 
+// Mobile safety (@1): when manifest.isDesktopOnly is false, the bundle must not touch Node/Electron
+// APIs. The word boundary on Buffer is deliberate: a bare "Buffer" substring also matches noble's
+// "ArrayBuffer", which is a Web API and perfectly fine on mobile.
+if (manifest.isDesktopOnly === false) {
+  const literals = [
+    'require("fs")', "require('fs')",
+    'require("path")', "require('path')",
+    'require("crypto")', "require('crypto')",
+    'require("os")', "require('os')",
+    'require("child_process")', "require('child_process')",
+    'require("electron")', 'from "electron"',
+    "process.",
+  ];
+  const found = [];
+  for (const lit of literals) {
+    const n = bundle.split(lit).length - 1;
+    if (n) found.push(lit + " x" + n);
+  }
+  const buf = bundle.match(/\bBuffer\b/g);
+  if (buf) found.push("bare Buffer x" + buf.length);
+  found.length
+    ? bad("isDesktopOnly is false but the bundle touches Node/Electron APIs: " + found.join(", "))
+    : ok("isDesktopOnly:false holds - no Node/Electron API, no process, no bare Buffer in the bundle");
+  const ab = (bundle.match(/ArrayBuffer/g) || []).length;
+  ok("word-boundary check: ArrayBuffer appears " + ab + "x and is not flagged as Buffer");
+}
+
 exists(".github/workflows/release.yml")
   ? ok("release workflow present (tag -> GitHub release with main.js + manifest.json + styles.css)")
   : bad("release workflow missing");

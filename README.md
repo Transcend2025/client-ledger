@@ -49,6 +49,10 @@ Northwind=80
 | Client Ledger: Open ledger dashboard | time + money per client across the whole vault |
 | Client Ledger: Audit: list entries with time but no client | `Client Ledger/unassigned-audit.md` |
 
+## Independent implementation
+
+This is a fresh repository with its own code. No code was inherited from any existing plugin: Obsidian's developer policies forbid forks in the directory unless the original author approves or has been unreachable for six months, so Client Ledger was written from scratch instead of forked.
+
 ## Disclosures
 
 **Payment is required for full access** to some features. The free tier covers the dashboard, the markdown invoice note, the CSV timesheet and the audit report. The Pro license unlocks printable HTML/PDF invoice export with your own branding.
